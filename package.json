@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "prebuild": "node scripts/fix-fixture-integrity.mjs",
     "build": "vite build",
+    "prestart": "node scripts/fix-fixture-integrity.mjs",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
