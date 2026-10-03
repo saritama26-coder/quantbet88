@@ -1,0 +1,6 @@
+{
+  "name": "QuantBet EV+ | Analista Cuantitativo de Apuestas Deportivas",
+  "description": "Terminal cuantitativo para cálculo de valor esperado (EV+), desmargenado, criterio de Kelly (1/4), análisis de xG y verificación estricta de cuotas deportivas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
