@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "predev": "node scripts/fix-fixture-integrity.mjs",
-    "prebuild": "node scripts/fix-fixture-integrity.mjs",
+    "predev": "node scripts/run-fixture-integrity-patch.mjs",
+    "prebuild": "node scripts/run-fixture-integrity-patch.mjs",
     "build": "vite build",
-    "prelint": "node scripts/fix-fixture-integrity.mjs",
+    "prelint": "node scripts/run-fixture-integrity-patch.mjs",
     "lint": "tsc --noEmit",
-    "prestart": "node scripts/fix-fixture-integrity.mjs",
+    "prestart": "node scripts/run-fixture-integrity-patch.mjs",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js"
