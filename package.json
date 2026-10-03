@@ -8,11 +8,12 @@
     "predev": "node scripts/fix-fixture-integrity.mjs",
     "prebuild": "node scripts/fix-fixture-integrity.mjs",
     "build": "vite build",
+    "prelint": "node scripts/fix-fixture-integrity.mjs",
+    "lint": "tsc --noEmit",
     "prestart": "node scripts/fix-fixture-integrity.mjs",
     "start": "tsx server.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist server.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
