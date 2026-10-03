@@ -1,0 +1,93 @@
+name: Fix fixture integrity
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'fix: isolate in-play fixture state') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch LiveMatchAnalyzer
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const p = 'src/components/LiveMatchAnalyzer.tsx';
+          let s = fs.readFileSync(p, 'utf8');
+          let changed = false;
+          const replaceOnce = (a,b,label) => {
+            if (!s.includes(a)) throw new Error('Missing patch anchor: ' + label);
+            s = s.replace(a,b);
+            changed = true;
+          };
+          if (!s.includes('const [selectedCanonicalFixtureId')) {
+            replaceOnce(
+              "  const [selectedFixtureId, setSelectedFixtureId] = useState<string>('sample-live-1');",
+              "  const [selectedFixtureId, setSelectedFixtureId] = useState<string>('sample-live-1');\n  const [selectedCanonicalFixtureId, setSelectedCanonicalFixtureId] = useState<string>('sample-live-1');",
+              'canonical state'
+            );
+          }
+          if (!s.includes('const fixtureRequestSeq = useRef(0);')) {
+            replaceOnce(
+              "  const [detailedTelemetry, setDetailedTelemetry] = useState<any>(null);",
+              "  const [detailedTelemetry, setDetailedTelemetry] = useState<any>(null);\n  const fixtureRequestSeq = useRef(0);",
+              'request sequence'
+            );
+          }
+          const gs = s.indexOf("  const getInitialOdds = (marketType: '1X2' | 'TOTAL_GOALS' | 'BTTS') => {");
+          const ge = s.indexOf("\n\n  const [liveOdds", gs);
+          if (gs >= 0 && ge > gs) {
+            const factory = `  const getInitialOdds = (\n    marketType: '1X2' | 'TOTAL_GOALS' | 'BTTS',\n    homeTeam: string = matchState.homeTeam,\n    awayTeam: string = matchState.awayTeam,\n    fixtureId: string = selectedCanonicalFixtureId\n  ): InPlayOddsCapture[] => {\n    const nowTime = new Date().toTimeString().slice(0, 8);\n    const base: any = { canonicalFixtureId: fixtureId, homeTeam, awayTeam, capturedAt: new Date().toISOString() };\n    if (marketType === '1X2') {\n      return [\n        { ...base, id: '1', option: \`Local (\${homeTeam})\`, odd: 1.01, captureTime: '00:00:00' },\n        { ...base, id: '2', option: 'Empate', odd: 1.01, captureTime: '00:00:00' },\n        { ...base, id: '3', option: \`Visitante (\${awayTeam})\`, odd: 1.01, captureTime: '00:00:00' },\n      ] as InPlayOddsCapture[];\n    }\n    if (marketType === 'TOTAL_GOALS') {\n      return [\n        { ...base, id: '1', option: 'Más de 2.5 Goles', odd: 1.01, captureTime: '00:00:00' },\n        { ...base, id: '2', option: 'Menos de 2.5 Goles', odd: 1.01, captureTime: '00:00:00' },\n      ] as InPlayOddsCapture[];\n    }\n    return [\n      { ...base, id: '1', option: 'Ambos Marcan (Sí)', odd: 1.01, captureTime: '00:00:00' },\n      { ...base, id: '2', option: 'Ambos Marcan (No)', odd: 1.01, captureTime: '00:00:00' },\n    ] as InPlayOddsCapture[];\n  };`;
+            s = s.slice(0, gs) + factory + s.slice(ge);
+            changed = true;
+          }
+          replaceOnce(
+            "      setSelectedFixtureId(fixtureIdStr);\n      setLiveFixtures((prev) => {",
+            "      setSelectedFixtureId(fixtureIdStr);\n      setSelectedCanonicalFixtureId(String(initialFixture.canonicalFixtureId || fixtureIdStr));\n      setDetailedTelemetry(null);\n      setLiveOdds(getInitialOdds('1X2', initialFixture.homeTeam || '', initialFixture.awayTeam || '', String(initialFixture.canonicalFixtureId || fixtureIdStr)));\n      setLiveFixtures((prev) => {",
+            'initial fixture sync'
+          );
+          replaceOnce(
+            "        dataUpdatedTimestamp: new Date().toISOString(),\n      }));\n    }\n  }, [initialFixture]);",
+            "        dataUpdatedTimestamp: new Date().toISOString(),\n        lastEventElapsedMinute: undefined,\n        lastEventDetail: undefined,\n        manualEditedAt: undefined,\n      }));\n    }\n  }, [initialFixture]);",
+            'clear stale event state'
+          );
+          replaceOnce(
+            "  const fetchFixtureDetails = async (fixtureId: string) => {\n    try {",
+            "  const fetchFixtureDetails = async (fixtureId: string) => {\n    const requestId = ++fixtureRequestSeq.current;\n    try {",
+            'request sequence start'
+          );
+          replaceOnce(
+            "      const json = await res.json();\n      if (json.data) {",
+            "      const json = await res.json();\n      if (requestId !== fixtureRequestSeq.current) return;\n      if (json.data) {",
+            'request sequence guard'
+          );
+          replaceOnce(
+            "  const handleMarketChange = (newMarket: '1X2' | 'TOTAL_GOALS' | 'BTTS') => {\n    setTargetMarket(newMarket);\n    setLiveOdds(getInitialOdds(newMarket));\n  };",
+            "  const handleMarketChange = (newMarket: '1X2' | 'TOTAL_GOALS' | 'BTTS') => {\n    setTargetMarket(newMarket);\n    setLiveOdds(getInitialOdds(newMarket, matchState.homeTeam, matchState.awayTeam, selectedCanonicalFixtureId));\n  };",
+            'market reset'
+          );
+          replaceOnce(
+            "              onChange={(e) => {\n                setSelectedFixtureId(e.target.value);\n                fetchFixtureDetails(e.target.value);\n              }}",
+            "              onChange={(e) => {\n                const nextId = e.target.value;\n                const nextFixture = liveFixtures.find((f: any) => String(f.id ?? f.fixtureId) === String(nextId));\n                const canonicalId = String(nextFixture?.canonicalFixtureId || nextId);\n                setSelectedFixtureId(nextId);\n                setSelectedCanonicalFixtureId(canonicalId);\n                setDetailedTelemetry(null);\n                setLiveOdds(getInitialOdds(targetMarket, nextFixture?.homeTeam || '', nextFixture?.awayTeam || '', canonicalId));\n                setMatchState((prev) => ({\n                  ...prev,\n                  fixtureId: canonicalId,\n                  homeTeam: nextFixture?.homeTeam || prev.homeTeam,\n                  awayTeam: nextFixture?.awayTeam || prev.awayTeam,\n                  currentMinute: nextFixture?.minute ?? prev.currentMinute,\n                  scoreHome: nextFixture?.scoreHome ?? 0,\n                  scoreAway: nextFixture?.scoreAway ?? 0,\n                  redCardsHome: 0,\n                  redCardsAway: 0,\n                  lastEventElapsedMinute: undefined,\n                  lastEventDetail: undefined,\n                  manualEditedAt: undefined,\n                  dataUpdatedTimestamp: new Date().toISOString(),\n                }));\n                fetchFixtureDetails(nextId);\n              }}",
+            'fixture selector atomic reset'
+          );
+          const marker = `        {/* Live Odds Table */}\n        <div className="space-y-2">`;
+          if (s.includes(marker) && !s.includes('INTEGRIDAD DEL FIXTURE:')) {
+            const integrity = `        {/* Live Odds Table */}\n        <div className="mb-2 px-3 py-2 rounded border text-[11px] font-mono ${liveOdds.every((o: any) => String(o.canonicalFixtureId || selectedCanonicalFixtureId) === String(selectedCanonicalFixtureId) && (!o.homeTeam || o.homeTeam === matchState.homeTeam) && (!o.awayTeam || o.awayTeam === matchState.awayTeam)) ? 'border-emerald-800 bg-emerald-950/20 text-emerald-300' : 'border-rose-800 bg-rose-950/20 text-rose-300'}">\n          INTEGRIDAD DEL FIXTURE: {liveOdds.every((o: any) => String(o.canonicalFixtureId || selectedCanonicalFixtureId) === String(selectedCanonicalFixtureId) && (!o.homeTeam || o.homeTeam === matchState.homeTeam) && (!o.awayTeam || o.awayTeam === matchState.awayTeam)) ? 'OK' : 'ERROR'}\n          <span className="ml-2 opacity-80">\${matchState.homeTeam} vs \${matchState.awayTeam}</span>\n        </div>\n        <div className="space-y-2">`;
+            s = s.replace(marker, integrity);
+            changed = true;
+          }
+          if (changed) fs.writeFileSync(p, s);
+          console.log(changed ? 'Fixture isolation patch applied.' : 'Fixture isolation already applied.');
+          NODE
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/LiveMatchAnalyzer.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: isolate in-play fixture state"
+          git push
