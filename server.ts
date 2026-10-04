@@ -910,6 +910,12 @@ function generateMasterRadarCatalog(baseDateStr?: string) {
   });
 }
 
+
+// Zona horaria operativa de QuantBet (Ecuador continental, UTC-5)
+const APP_TIMEZONE = 'America/Guayaquil';
+const localTodayStr = (): string =>
+  new Date().toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
+
 // ============================================================================
 // ENDPOINT RADAR 1: GET /api/fixtures?date=YYYY-MM-DD
 // Consulta la API real de API-Football mediante 'node-fetch' usando LIVE_DATA_API_KEY.
@@ -920,7 +926,7 @@ app.get('/api/fixtures', async (req, res) => {
   const requestedDate =
     req.query.date
       ? String(req.query.date).trim()
-      : new Date().toISOString().split('T')[0];
+      : localTodayStr();
 
   const requestedCountry = req.query.country
     ? String(req.query.country).trim()
@@ -932,6 +938,23 @@ app.get('/api/fixtures', async (req, res) => {
 
   const cacheKey =
     `${requestedDate}|${requestedCountry}|${requestedLeague}`;
+
+  // MODO DEMO explícito (mode=demo): catálogo simulado, marcado isDemo=true.
+  // En modo REAL nunca se usa este catálogo.
+  if (String(req.query.mode || '').toLowerCase() === 'demo') {
+    const demoFixtures = generateMasterRadarCatalog(requestedDate)
+      .filter((f: any) => String(f.date || '').startsWith(requestedDate));
+    return res.json({
+      success: true,
+      dataMode: 'DEMO',
+      dataStatus: 'DEMO',
+      isDemo: true,
+      source: 'DEMO_CATALOG',
+      count: demoFixtures.length,
+      fixtures: demoFixtures,
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   const now = Date.now();
 
@@ -995,6 +1018,7 @@ app.get('/api/fixtures', async (req, res) => {
 
     const query = new URLSearchParams({
       date: requestedDate,
+      timezone: APP_TIMEZONE,
     });
 
     const apiUrl =
@@ -1425,7 +1449,37 @@ app.get('/api/fixtures', async (req, res) => {
 // ============================================================================
 app.get('/api/fixtures/weekend', async (req, res) => {
   try {
-    const requestedDate = req.query.date ? String(req.query.date).trim() : new Date().toISOString().split('T')[0];
+    const requestedDate = req.query.date ? String(req.query.date).trim() : localTodayStr();
+    // MODO DEMO explícito (mode=demo): catálogo simulado agrupado por día.
+    if (String(req.query.mode || '').toLowerCase() === 'demo') {
+      const refD = new Date(`${requestedDate}T12:00:00Z`);
+      const dow = refD.getUTCDay();
+      const f = new Date(refD);
+      f.setUTCDate(refD.getUTCDate() + (dow === 0 ? -2 : 5 - dow));
+      const ymd = (d: Date) => d.toISOString().split('T')[0];
+      const s1 = new Date(f); s1.setUTCDate(f.getUTCDate() + 1);
+      const s2 = new Date(f); s2.setUTCDate(f.getUTCDate() + 2);
+      const all = generateMasterRadarCatalog(requestedDate);
+      const pick = (d: string) => all.filter((x: any) => String(x.date || '').startsWith(d));
+      const friday = pick(ymd(f));
+      const saturday = pick(ymd(s1));
+      const sunday = pick(ymd(s2));
+      return res.json({
+        success: true,
+        dataMode: 'DEMO',
+        isDemo: true,
+        source: 'DEMO_CATALOG',
+        days: { friday, saturday, sunday },
+        summary: {
+          totalMatches: friday.length + saturday.length + sunday.length,
+          fridayCount: friday.length,
+          saturdayCount: saturday.length,
+          sundayCount: sunday.length,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const isDemoMode = false; // MODO REAL exclusivo en producción.
     const cacheKey = `weekend_${requestedDate}_real`;
     const now = Date.now();
@@ -1477,7 +1531,7 @@ app.get('/api/fixtures/weekend', async (req, res) => {
       // En modo real con clave, responder estructura real
       const fetchDay = async (dateStr: string) => {
         try {
-          const r = await fetch(`https://v3.football.api-sports.io/fixtures?date=${dateStr}`, {
+          const r = await fetch(`https://v3.football.api-sports.io/fixtures?date=${dateStr}&timezone=${encodeURIComponent(APP_TIMEZONE)}`, {
             headers: { 'x-apisports-key': liveDataApiKey, 'x-apisports-host': 'v3.football.api-sports.io' },
             signal: AbortSignal.timeout(8000),
           });
