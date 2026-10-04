@@ -148,7 +148,8 @@ export const MatchRadar: React.FC<MatchRadarProps> = ({
     setIsLoading(true);
     setApiErrorMessage(null);
     try {
-      const todayIso = new Date().toISOString().split('T')[0];
+      // Fecha local de Guayaquil (UTC-5), no UTC: evita saltar al día siguiente después de las 19:00
+      const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
       const modeParam = isDemoMode ? 'mode=demo' : 'mode=real';
 
       // 1. Fetch Today Fixtures (P0.1)
